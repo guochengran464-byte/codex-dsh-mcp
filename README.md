@@ -217,8 +217,8 @@ node check-mode.mjs
 
 ## Contributors
 
-- [Guo Chengran (@guochengran464-byte)](https://github.com/guochengran464-byte)
-- ChatGPT
+- [Guo Chengran (@guochengran464-byte)](https://github.com/guochengran464-byte) — project creator and maintainer
+- ChatGPT — AI-assisted architecture, coding, review, and documentation
 
 ## 许可证
 
