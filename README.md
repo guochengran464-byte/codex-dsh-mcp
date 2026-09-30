@@ -215,6 +215,11 @@ node check-mode.mjs
 
 执行 `codex mcp remove dsh`，删除实际 Profile 中 `BEGIN CODEX DSH MCP` 到 `END CODEX DSH MCP` 之间的桥接条目，再重启 DSH。仅删除桥接条目，保留其他插件配置。
 
+## Contributors
+
+- [Guo Chengran (@guochengran464-byte)](https://github.com/guochengran464-byte)
+- ChatGPT
+
 ## 许可证
 
 本项目采用 [MIT License](LICENSE)。
