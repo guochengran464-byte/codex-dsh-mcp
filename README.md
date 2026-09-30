@@ -1,10 +1,10 @@
 # Codex × DSH MCP
 
-**让 Codex 的 Sol 级模型做指挥，让 DCS DeepSeek Flash 做编程主力，GLM、Qwen、Kimi 按任务协作。**
+**让 Codex 的 Sol 级模型做指挥，让 DeepSeek Flash 做编程主力，GLM、Qwen、Kimi 按任务协作。**
 
 一个轻量的本地 MCP 桥接，把 Codex 的规划能力和 DeepSeek Harness（DSH）的多模型执行能力接起来。当前版本 **v1.1.1**。
 
-你在 Codex 中交代目标，Sol 模型理解需求、划分任务、确定接口，再通过 MCP 在 DSH 中建立独立聊天，把具体工作交给合适的 DCS 模型。结果回到 Codex，由主控检查关键边界、整合改动并向你汇报。
+你在 Codex 中交代目标，Sol 模型理解需求、划分任务、确定接口，再通过 MCP 在 DSH 中建立独立聊天，把具体工作交给合适的模型。结果回到 Codex，由主控检查关键边界、整合改动并向你汇报。
 
 ## 为什么这样分工
 
@@ -24,10 +24,10 @@
 flowchart TD
     U[用户：目标与约束] --> C[Codex / Sol：拆解、指挥、整合]
     C --> M[本地 MCP 桥接]
-    M --> D[DSH / DCS DeepSeek Flash：主力编程]
-    M --> G[DSH / DCS GLM：协作任务]
-    M --> Q[DSH / DCS Qwen：协作任务]
-    M --> K[DSH / DCS Kimi：可选任务]
+    M --> D[DSH / DeepSeek Flash：主力编程]
+    M --> G[DSH / GLM：协作任务]
+    M --> Q[DSH / Qwen：协作任务]
+    M --> K[DSH / Kimi：可选任务]
     D --> R[会话状态与回复]
     G --> R
     Q --> R
@@ -46,7 +46,7 @@ flowchart TD
 
 | 工具 | 用途 |
 | --- | --- |
-| `dsh_info` | 查看桥接状态、DCS 模型 ID 和各模型支持的推理强度 |
+| `dsh_info` | 查看桥接状态、模型 ID 和各模型支持的推理强度 |
 | `dsh_chat` | 创建空聊天或立即发任务；选择项目、模型、推理强度；继续聊天或插队补充要求 |
 | `dsh_result` | 读取状态与文本回复，省略推理过程和工具日志 |
 | `dsh_projects` | 列出 DSH 项目 |
@@ -61,7 +61,7 @@ flowchart TD
 
 - Node.js `>=22.19.0`、npm，以及带 MCP 支持的 Codex。
 - 能正常启动的 DSH。已在 Windows 上验证官方 DeepSeek Harness 的连接、发送任务、读取回复和归档流程。
-- DSH 中已经配置 DCS 提供方 `dcs-cloud-chat` / `dcs-cloud-responses` 及相应凭据。本仓库不安装 DCS 提供方，也不附带模型凭据。
+- DSH 中已经配置可用模型和相应凭据。本仓库不附带模型服务或凭据。
 
 ### 1. 下载并安装依赖
 
@@ -113,10 +113,13 @@ await writeFile(join(config.stateDir, 'token'), randomBytes(32).toString('hex'),
       name: "D:/agent-work/codex-dsh-mcp/dsh-plugin.mjs"
       config:
         port: 43129
+        allowedProviders: ["your-provider-id"]
         stateDir: "D:/agent-work/dsh-mcp-state"
         defaultCwd: "D:/agent-work/dsh-workers"
 # END CODEX DSH MCP
 ```
+
+`allowedProviders` 填入你允许 MCP 使用的实际提供方 ID（可在 DSH 模型配置中查看），不要照抄示例值。未配置白名单时插件拒绝启动；只读取并调用白名单内的提供方，不会自动回退。
 
 重启 DSH，保持它运行。
 
@@ -126,13 +129,13 @@ await writeFile(join(config.stateDir, 'token'), randomBytes(32).toString('hex'),
 codex mcp add dsh -- node "D:/agent-work/codex-dsh-mcp/server.mjs"
 ```
 
-替换为实际仓库路径。重新打开 Codex 后，调用 `dsh_info` 确认 `connected: true`，并查看当前可用 DCS 模型。
+替换为实际仓库路径。重新打开 Codex 后，调用 `dsh_info` 确认 `connected: true`，并查看当前可用模型。
 
 ## 给主控的示例指令
 
 在 Codex 中选择你要使用的 Sol 级模型，再粘贴下面的指令，并补上实际任务：
 
-> 你负责架构、任务拆解和最终整合。先通过 dsh_info 读取 DCS 模型目录。范围明确的编程任务默认交给 DeepSeek Flash；适合独立推进的工作可分给 GLM、Qwen 或 Kimi。按模型实际支持的档位选择推理强度。
+> 你负责架构、任务拆解和最终整合。先通过 dsh_info 读取模型目录。范围明确的编程任务默认交给 DeepSeek Flash；适合独立推进的工作可分给 GLM、Qwen 或 Kimi。按模型实际支持的档位选择推理强度。
 >
 > 每项任务交代目标、工作目录、允许修改的文件、输入输出、验收要求和需要返回的结果。存在依赖时先完成前置任务；并行工作划分文件边界，必要时使用独立目录。通过 dsh_chat 建立聊天并派工，记录 session_id 和 after_seq，再用 dsh_result 收集结果。
 >
@@ -147,7 +150,6 @@ codex mcp add dsh -- node "D:/agent-work/codex-dsh-mcp/server.mjs"
 ```json
 {
   "title": "主力：实现登录接口",
-  "provider": "dcs-cloud-responses",
   "model": "deepseek-flash",
   "reasoning_effort": "default",
   "cwd": "D:/agent-work/my-project",
@@ -155,7 +157,7 @@ codex mcp add dsh -- node "D:/agent-work/codex-dsh-mcp/server.mjs"
 }
 ```
 
-协作聊天可使用 `dcs-cloud-chat` 下的模型，例如 `glm-5.3`、`qwen3.8-flash`、`kimi-k3`。模型 ID 与档位可能变化，始终以 `dsh_info` 的实时目录为准。
+协作聊天可使用已配置提供方下的模型，例如 `glm-5.3`、`qwen3.8-flash`、`kimi-k3`。模型 ID 与档位可能变化，始终以 `dsh_info` 的实时目录为准。
 
 ### 读取结果与继续工作
 
@@ -185,8 +187,8 @@ codex mcp add dsh -- node "D:/agent-work/codex-dsh-mcp/server.mjs"
 
 - `server.mjs` 是 Codex 启动的 stdio MCP 服务；`dsh-plugin.mjs` 运行在 DSH 内，通过其会话、项目和模型服务执行操作。
 - 两者通过仅监听 `127.0.0.1` 的 HTTP 桥接通信，使用 `stateDir/token` 中的随机密钥认证。
-- 当前实现只允许两个 DCS 提供方，模型目录读取和模型请求都受此限制。官方 DSH 软件可以使用；官方 DeepSeek 模型 API 在本桥接中被阻止。
-- Codex 主控使用 Codex 自己的模型与订阅；执行模型使用 DSH 已配置的 DCS 服务。桥接不会把 Plus 订阅转成 API 额度，也不会替你购买执行额度。
+- 模型目录读取和模型请求仅允许本机 `allowedProviders` 白名单内的提供方。公开代码不绑定任何特定模型服务渠道。
+- Codex 主控使用 Codex 自己的模型与订阅；执行模型使用 DSH 已配置的模型服务。桥接不会把 Plus 订阅转成 API 额度，也不会替你购买执行额度。
 - DSH 中的文件、工具和权限设置继续生效，需要批准的操作仍由用户在 DSH 中处理。
 - 当前依赖 DSH 的宿主服务接口，包括会话局部模型选择。DSH 升级后建议先检查连接和一次简单任务；不同发行版和未来版本的兼容性需实际验证。
 - `dsh_chats` 默认返回最多 20 条，`limit` 最大为 100；`include_archived: true` 查看归档，`bridge_only: true` 仅列出桥接创建的聊天。
@@ -199,17 +201,17 @@ node --check dsh-plugin.mjs
 node check-mode.mjs
 ```
 
-`check-mode.mjs` 检查默认排队、显式排队、插队及无效模式，使用隔离桥接和模拟的 DSH 投递接口，不调用模型 API。它不替代真实 DSH 的端到端检查。
+`check-mode.mjs` 检查提供方白名单、默认排队、显式排队、插队及无效模式，使用隔离桥接和模拟的 DSH 投递接口，不调用模型 API。它不替代真实 DSH 的端到端检查。
 
 ## 版本
 
 | 版本 | 内容 |
 | --- | --- |
-| `v1.0` | DCS 模型信息、发送任务、读取结果的最小桥接 |
+| `v1.0` | 模型信息、发送任务、读取结果的最小桥接 |
 | `v1.1` | 项目管理、聊天列表与归档、每个新聊天独立选择模型和推理强度 |
 | `v1.1.1` | 新增 `queue` / `steer` 排队与插队 |
 
-`connection-check.json` 是经过路径脱敏的 v1.0 历史连接样例。本机配置、密钥、依赖安装目录和原配置备份不应上传。
+`connection-check.json` 是经过路径和提供方脱敏的 v1.0 历史连接样例。本机配置、密钥、依赖安装目录和原配置备份不应上传。
 
 ## 移除
 

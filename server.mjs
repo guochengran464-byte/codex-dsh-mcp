@@ -29,13 +29,13 @@ async function call(method, args = {}) {
 }
 
 server.registerTool('dsh_info', {
-  description: 'Check local DSH Desktop connection and list DCS API models. This bridge allows only DCS providers.',
+  description: 'Check local DSH Desktop connection and list models from configured allowed providers.',
   inputSchema: {},
   annotations: { readOnlyHint: true },
 }, () => call('info'));
 
 server.registerTool('dsh_chat', {
-  description: 'Create a visible DSH conversation with an optional prompt, DCS model and reasoning effort, or send a follow-up using session_id. Model settings are per conversation. Official API providers are blocked. Then call dsh_result for task results.',
+  description: 'Create a visible DSH conversation with an optional prompt, model and reasoning effort, or send a follow-up using session_id. Model settings are per conversation. Only configured allowed providers may be used. Then call dsh_result for task results.',
   inputSchema: {
     prompt: z.string().min(1).max(50000).optional().describe('Omit to create an empty new conversation; required for a follow-up.'),
     cwd: z.string().optional().describe('Absolute workspace path; used when creating a conversation.'),
@@ -43,8 +43,8 @@ server.registerTool('dsh_chat', {
     title: z.string().max(100).optional(),
     session_id: z.string().optional().describe('A session_id previously returned by dsh_chat.'),
     mode: z.enum(['queue', 'steer']).default('queue').describe('queue waits for the current turn to finish; steer inserts guidance into the current turn using DSH native steering.'),
-    provider: z.enum(['dcs-cloud-chat', 'dcs-cloud-responses']).optional().describe('New conversations only. May be inferred from model when unambiguous.'),
-    model: z.string().min(1).optional().describe('New conversations only. Exact DCS model ID from dsh_info.'),
+    provider: z.string().min(1).optional().describe('New conversations only. Allowed provider ID from dsh_info. May be inferred from model when unambiguous.'),
+    model: z.string().min(1).optional().describe('New conversations only. Exact model ID from dsh_info.'),
     reasoning_effort: z.string().min(1).optional().describe('New conversations only. Supported effort ID from dsh_info, or default for the model default.'),
   },
 }, args => call('chat', args));

@@ -6,13 +6,6 @@ import { isAbsolute, join } from 'node:path';
 export const name = 'codex-dsh-mcp';
 export const inject = ['sessionController', 'sessionQuery', 'agents', 'agentDefaultModel', 'workspaceController', 'workspaceRegistry', 'llm'];
 const prefix = 'codex-mcp-';
-const dcsProviders = new Set(['dcs-cloud-chat', 'dcs-cloud-responses']);
-
-function requireDcs(selection) {
-  if (!dcsProviders.has(selection?.provider)) {
-    throw new Error('This bridge only permits DCS API providers: dcs-cloud-chat and dcs-cloud-responses. Select a DCS model in DSH.');
-  }
-}
 
 function requireSession(id) {
   if (typeof id !== 'string' || !/^codex-mcp-[0-9a-f-]{36}$/.test(id)) {
@@ -21,6 +14,16 @@ function requireSession(id) {
 }
 
 export async function apply(ctx, config) {
+  if (!Array.isArray(config.allowedProviders) || !config.allowedProviders.length
+    || config.allowedProviders.some(id => typeof id !== 'string' || !id.trim())) {
+    throw new Error('Configure allowedProviders with the provider IDs this bridge may use.');
+  }
+  const allowedProviders = new Set(config.allowedProviders);
+  function requireProvider(selection) {
+    if (!allowedProviders.has(selection?.provider)) {
+      throw new Error('Provider is not allowed by this bridge configuration.');
+    }
+  }
   const token = (await readFile(join(config.stateDir, 'token'), 'utf8')).trim();
   if (token.length < 32) throw new Error('Bridge token is missing or invalid.');
 
@@ -30,10 +33,10 @@ export async function apply(ctx, config) {
     guarded.add(agent);
     const dispose = agent.ctx.on('agent/request', async (_payload, next) => {
       const selection = await next();
-      requireDcs(selection);
+      requireProvider(selection);
       return selection;
     });
-    ctx.effect(() => dispose, 'codex-dsh-mcp DCS-only route');
+    ctx.effect(() => dispose, 'codex-dsh-mcp provider guard');
   }
   ctx.on('agent/created', ({ agent }) => guard(agent));
 
@@ -47,8 +50,8 @@ export async function apply(ctx, config) {
     const available = new Set(ctx.llm.listProviders().map(item => item.id));
     const groups = [];
     const failures = [];
-    // Query only DCS providers, including when listing model capabilities.
-    for (const provider of dcsProviders) {
+    // Read model capabilities only from explicitly allowed providers.
+    for (const provider of allowedProviders) {
       if (!available.has(provider)) continue;
       try {
         const entries = await ctx.llm.listModels(provider);
@@ -68,7 +71,7 @@ export async function apply(ctx, config) {
       }
     }
     const selected = ctx.agentDefaultModel.currentSelection();
-    return { default: dcsProviders.has(selected.provider) ? selected : null,
+    return { default: allowedProviders.has(selected.provider) ? selected : null,
       groups, failures, routableProviders: groups.map(item => item.id) };
   }
 
@@ -78,15 +81,14 @@ export async function apply(ctx, config) {
     const model = args.model ?? current.model;
     const catalog = await modelCatalog();
     if (!provider && args.model) {
-      const matches = catalog.groups.filter(group => dcsProviders.has(group.id)
-        && group.models.some(item => item.id === model));
-      if (matches.length !== 1) throw new Error('Specify a DCS provider for this model; use dsh_info for available IDs.');
+      const matches = catalog.groups.filter(group => group.models.some(item => item.id === model));
+      if (matches.length !== 1) throw new Error('Specify a provider for this model; use dsh_info for available IDs.');
       provider = matches[0].id;
     }
     provider ??= current.provider;
-    requireDcs({ provider });
+    requireProvider({ provider });
     const entry = catalog.groups.find(group => group.id === provider)?.models.find(item => item.id === model);
-    if (!entry) throw new Error('DCS model is unavailable; use dsh_info for available IDs.');
+    if (!entry) throw new Error('Model is unavailable; use dsh_info for available IDs.');
     const explicitModel = args.model !== undefined || args.provider !== undefined;
     const effort = args.reasoning_effort === 'default' ? undefined
       : args.reasoning_effort ?? (explicitModel ? undefined : current.reasoningEffort);
@@ -96,7 +98,7 @@ export async function apply(ctx, config) {
     const resolved = await ctx.llm.resolveCallConfig({
       provider, model, ...(effort === undefined ? {} : { reasoningEffort: effort }),
     });
-    requireDcs(resolved);
+    requireProvider(resolved);
     return {
       provider: resolved.provider, model: resolved.model,
       ...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }),
@@ -110,15 +112,9 @@ export async function apply(ctx, config) {
       return {
         connected: true,
         version: '1.1.1',
-        dcs_only: true,
-        default_model: dcsProviders.has(selected.provider) ? selected : null,
-        models: {
-          ...catalog,
-          default: dcsProviders.has(catalog.default?.provider) ? catalog.default : null,
-          groups: catalog.groups.filter(group => dcsProviders.has(group.id)),
-          routableProviders: catalog.routableProviders.filter(provider => dcsProviders.has(provider)),
-          failures: (catalog.failures ?? []).filter(failure => dcsProviders.has(failure.id)),
-        },
+        provider_allowlist: [...allowedProviders],
+        default_model: catalog.default,
+        models: catalog,
       };
     }
     if (method === 'projects') {
@@ -199,7 +195,7 @@ export async function apply(ctx, config) {
       }
       const before = await ctx.sessionQuery.readSession(id);
       const latestRoute = before.events.findLast(e => e.type === 'model/selection' || e.type === 'request/header');
-      requireDcs(latestRoute?.type === 'model/selection' ? latestRoute.data
+      requireProvider(latestRoute?.type === 'model/selection' ? latestRoute.data
         : latestRoute?.data.header?.config ?? ctx.agentDefaultModel.currentSelection());
       guard(ctx.agents.get(id));
       if (args.prompt === undefined) {

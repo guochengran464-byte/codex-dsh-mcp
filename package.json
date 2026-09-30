@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Local MCP bridge for Codex Sol orchestration with DCS DeepSeek Flash, GLM and Qwen workers",
+  "description": "Local MCP bridge for Codex Sol orchestration with DeepSeek Flash, GLM and Qwen workers",
   "engines": {
     "node": ">=22.19.0"
   },

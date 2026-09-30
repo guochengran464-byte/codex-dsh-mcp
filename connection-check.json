@@ -1,14 +1,12 @@
 {
   "version": "1.0.0",
-  "dcs_only": true,
   "default_model": {
-    "provider": "dcs-cloud-responses",
+    "provider": "example-provider",
     "model": "deepseek-flash",
     "reasoningEffort": "max"
   },
   "visible_providers": [
-    "dcs-cloud-chat",
-    "dcs-cloud-responses"
+    "example-provider"
   ],
   "receipt": {
     "accepted": true,
