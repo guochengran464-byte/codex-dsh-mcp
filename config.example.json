@@ -1,0 +1,5 @@
+{
+  "port": 43129,
+  "stateDir": "C:/path/to/private/dsh-mcp-state",
+  "defaultCwd": "C:/path/to/dsh-workers"
+}

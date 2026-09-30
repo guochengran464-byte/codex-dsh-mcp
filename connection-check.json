@@ -1,0 +1,34 @@
+{
+  "version": "1.0.0",
+  "dcs_only": true,
+  "default_model": {
+    "provider": "dcs-cloud-responses",
+    "model": "deepseek-flash",
+    "reasoningEffort": "max"
+  },
+  "visible_providers": [
+    "dcs-cloud-chat",
+    "dcs-cloud-responses"
+  ],
+  "receipt": {
+    "accepted": true,
+    "session_id": "codex-mcp-2b257272-760a-454b-8413-38d4a9eba15c",
+    "request_id": "8552525e-4737-4e2c-bdb1-cb6e98d9a7e1",
+    "after_seq": 3,
+    "cwd": "D:/agent-work/dsh-workers"
+  },
+  "result": {
+    "session_id": "codex-mcp-2b257272-760a-454b-8413-38d4a9eba15c",
+    "status": "completed",
+    "reply": "MCP_DSH_OK",
+    "messages": [
+      {
+        "seq": 14,
+        "text": "MCP_DSH_OK"
+      }
+    ],
+    "through_seq": 16,
+    "cwd": "D:/agent-work/dsh-workers",
+    "model": "deepseek-flash"
+  }
+}
