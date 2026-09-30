@@ -185,13 +185,58 @@ codex mcp add dsh -- node "D:/agent-work/codex-dsh-mcp/server.mjs"
 
 ## 连接方式与边界
 
-- `server.mjs` 是 Codex 启动的 stdio MCP 服务；`dsh-plugin.mjs` 运行在 DSH 内，通过其会话、项目和模型服务执行操作。
-- 两者通过仅监听 `127.0.0.1` 的 HTTP 桥接通信，使用 `stateDir/token` 中的随机密钥认证。
-- 模型目录读取和模型请求仅允许本机 `allowedProviders` 白名单内的提供方。公开代码不绑定任何特定模型服务渠道。
-- Codex 主控使用 Codex 自己的模型与订阅；执行模型使用 DSH 已配置的模型服务。桥接不会把 Plus 订阅转成 API 额度，也不会替你购买执行额度。
-- DSH 中的文件、工具和权限设置继续生效，需要批准的操作仍由用户在 DSH 中处理。
-- 当前依赖 DSH 的宿主服务接口，包括会话局部模型选择。DSH 升级后建议先检查连接和一次简单任务；不同发行版和未来版本的兼容性需实际验证。
-- `dsh_chats` 默认返回最多 20 条，`limit` 最大为 100；`include_archived: true` 查看归档，`bridge_only: true` 仅列出桥接创建的聊天。
+### 官方入口调查
+
+官方提供的自动化入口是本地子进程加 stdio 协议，不是公开 HTTP REST API：
+
+| 入口 | 官方说明 | 能力与边界 |
+| --- | --- | --- |
+| [`dsh --profile headless "任务"`](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/headless/README.zh.md) | 一次性任务；可用 `--json` 和 `--session-id` | 无 GUI、无服务端口；单次执行后退出 |
+| [`dsh --profile acp`](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.zh.md) | 标准 ACP v1 stdio 服务 | 多个持久会话；新建/列出/恢复/关闭会话，选择模型与推理强度，发送/取消任务并接收状态和回复；不支持 `mode`、归档、删除、fork 或 transcript 回放 |
+| [`dsh --profile sdk`](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/server/README.md) | DSH SDK 的 JSON-RPC stdio 服务 | 初始化模型路由，排队提示词并推送会话事件/状态；比 ACP 少会话管理能力 |
+| 桌面版 Web/Host | 运行时本机 HTTP 服务 | 不是公开控制 API；未认证请求受保护 |
+
+本机实测：桌面安装目录内有 `resources/runtime/cli/bin/dsh.cmd`，不在系统 PATH；`dsh --version` 返回 `0.2.0-rc.2`。`netstat -ano` 显示 DSH 进程在 `127.0.0.1:19387`（桌面 Host/Web）和 `127.0.0.1:43129`（本项目插件桥）监听。`curl` 访问两端 `/` 均返回 `401`；Host 的 `/api` 也返回 `401`，`/health` 与 `/rpc` 返回 `404`。端口是本机这次运行的观测值，不是稳定 API 承诺；`43129` 属于本项目，不是 DSH 原生端口。
+
+### 能力矩阵与迁移目标
+
+以下“外部”指 MCP 直接启动受支持的 ACP 子进程，不表示它接管桌面窗口中正在运行的 Web 会话。ACP 会管理自己的持久会话。
+
+| MCP 能力 | 外部 ACP | 说明 |
+| --- | --- | --- |
+| `dsh_info` 独立读取模型目录、推理档位 | ❓ | ACP 在 `session/new` 返回模型/推理选项；没有只读目录方法。为读取选项先建会话会留下空会话 |
+| 新建聊天、选择模型/推理强度 | ✅ | `session/new` 与 `session/set_config_option` |
+| 发送任务、读取当前状态和回复 | ✅ | `session/prompt`、`session/update`；桥接可消费实时更新 |
+| `queue` 排队 | ✅ | SDK 原生排队；ACP 客户端可按会话串行提交，不依赖 DSH 插件 |
+| `steer` 插队 | ❌ | ACP 明确不支持 `mode`；要保留 DSH 原生插队语义，仍需插件 |
+| 项目列表、创建、删除 | ❌ | ACP 没有 DSH 项目注册表接口 |
+| 聊天列表 | ❓ | `session/list` 可列出 ACP 持久会话；它与桌面 Web profile 的普通/归档列表是否完全对应，需实机验证 |
+| 聊天归档 | ❌ | ACP `session/close` 只关闭运行时会话，不等于 DSH 归档 |
+| 断开重连后按 `after_seq` 回读旧回复 | ❓ | ACP 恢复会话不回放旧更新；如需此保证，需保留插件历史查询或调整 MCP 结果语义 |
+
+**建议的最小插件保留范围：**如果保留现有 `dsh_info` 的只读语义，需要三类能力留在插件侧：模型目录读取、项目/归档管理、原生插队。若改为从真实新会话读取模型选项并接受它留下空会话，才可把插件缩到后两类。新建/派工、模型设置、排队、聊天列表及当前任务结果可改由 ACP 子进程处理。若还要保留断连后的 `after_seq` 历史回读，再把历史查询单独留在插件侧。当前 v1.1.1 仍由 `dsh-plugin.mjs` 处理全部功能；这里是迁移目标，不代表已经完成 ACP 改造。
+
+### 插件扩展点与版本边界
+
+- 官方[插件教程](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/index.md)和[bundle/profile 说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md)说明了 profile/bundle 清单、`cordis.patch.yml` 的 `id`/`name`/`inject`/`config` 行、插件 `apply(ctx)` 生命周期，以及 `ctx.on()`/`ctx.effect()` 清理方式。这些是公开描述的插件格式和用法。
+- 官方没有承诺某个 Cordis/DSH 插件 API 版本在某个 DSH 版本范围内保持兼容。[开发者预览说明](https://www.deepseek.com/harness/en/)明确说核心插件和 API 会继续演进。
+- [插件管理器](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/plugin-manager/README.md)可按插件声明的 `peerDependencies` 检查其支持的 DSH 版本；这是安装/启动时的兼容性门槛，不是 API 不变承诺。绕过检查需要对精确版本显式豁免。
+- ACP v1 是当前最清晰的自动化协议边界；它提供标准协议语义，但不让 ACP 客户端控制桌面 Web 会话，也不覆盖 DSH 专属归档和 `steer` 行为。
+- `dsh --version` 是可用的版本探测方式。插件 Context 文档没有承诺提供 DSH 版本字段；若要 fail fast，由外部启动器调用版本命令后再启动 ACP 更稳妥。
+
+| 扩展点 | 官方文档说明 | 稳定性结论 |
+| --- | --- | --- |
+| Bundle/Profile 清单 | `package.json` 中的 `dsh.bundle.patch`、`dsh.profile.bundles`；用于分发与组合插件 | 有公开格式说明，没有跨版本兼容保证 |
+| `cordis.patch.yml` | 有序 patch 层；条目以 `id` 定位，支持 `name`、`inject`、`config`；覆盖时整段替换 `config` | 有公开格式与行为说明，没有独立的配置格式版本保证 |
+| Cordis 插件入口 | `name`、`apply(ctx)`、可选 `inject`/`Config`；注册项用 `ctx.on`/`ctx.effect` 清理 | 可用插件 API，但没有 DSH 版本范围内保持兼容的承诺 |
+| CLI 与 headless | `--profile`、`--patch`、`--version`；headless 一次任务、JSON 事件和会话 ID | 当前文档化用法；DSH developer preview 未承诺长期 CLI 兼容 |
+| ACP | DSH 文档声明实现稳定的 ACP v1，并公布会话、模型、推理强度和任务更新接口 | 目前唯一明确标为 stable 的协议边界；桌面产品仍处于 developer preview |
+
+本项目 v1.1.1 仍依赖插件注入的宿主服务，例如会话局部模型选择、项目注册和归档。它能与已验证的桌面版本配合，但不能据此推断其他发行版或未来版本兼容。
+
+Codex 主控使用 Codex 自己的模型与订阅；执行模型使用 DSH 中配置的模型服务。桥接不会把 Plus 订阅转成 API 额度，也不会替你购买执行额度。文件操作、工具和权限仍由 DSH profile 控制。
+
+`dsh_chats` 当前最多返回 20 条，`limit` 最大为 100；`include_archived: true` 查看归档，`bridge_only: true` 仅列出桥接创建的聊天。
 
 ## 本地检查
 
